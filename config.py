@@ -6,6 +6,10 @@ values in other files.
 
 import os
 
+from dotenv import load_dotenv
+
+load_dotenv()  # Loads variables from .env into the environment before any os.environ calls
+
 # ── API Keys ──────────────────────────────────────────────────────────────────
 
 FRED_API_KEY: str = os.environ.get("FRED_API_KEY", "")
