@@ -6,6 +6,7 @@ ready for feature engineering.
 """
 
 import pandas as pd
+import yfinance as yf
 from fredapi import Fred
 
 import config
@@ -97,3 +98,81 @@ def load_macro_data() -> pd.DataFrame:
     )
 
     return df
+
+
+def load_asset_returns() -> pd.DataFrame:
+    """Pull monthly adjusted close prices for all assets and return monthly returns.
+
+    Fetches each ticker in config.ASSETS from yfinance, resamples to month-end,
+    and computes simple percentage returns. The index is normalized to month-start
+    to match the macro DataFrame. Assets with shorter histories (e.g. DBC from 2006)
+    will have NaN returns before their inception date — these are left in place
+    rather than trimming the full DataFrame, so the backtester can handle the
+    mismatch explicitly.
+
+    Returns:
+        DataFrame with a monthly DatetimeIndex and one column per ticker.
+        First row (NaN from return calculation) is dropped.
+    """
+    tickers = list(config.ASSETS.keys())
+
+    raw = yf.download(
+        tickers,
+        start=config.START_DATE,
+        end=config.END_DATE,
+        auto_adjust=True,
+        progress=False,
+    )
+
+    # yfinance returns a MultiIndex when multiple tickers are requested.
+    prices: pd.DataFrame = raw["Close"]
+
+    # Resample daily prices to month-end last value, consistent with yield series.
+    monthly_prices = prices.resample("ME").last()
+
+    # Percentage return: (this month - last month) / last month.
+    returns = monthly_prices.pct_change()
+
+    # Drop first row — it's always NaN since there's no prior month to compare.
+    returns = returns.iloc[1:]
+
+    # Normalize to month-start to match macro DatetimeIndex.
+    returns.index = returns.index.to_period("M").to_timestamp()
+    returns.index.name = "date"
+
+    # Preserve column order to match config.ASSETS key order.
+    returns = returns[tickers]
+
+    print(
+        f"Asset returns loaded: {returns.index[0].date()} to {returns.index[-1].date()} "
+        f"({len(returns)} monthly observations, {len(returns.columns)} assets)"
+    )
+
+    return returns
+
+
+def load_all_data() -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Load macro indicators and asset returns, aligned to the macro date range.
+
+    The macro DataFrame drives the index — asset returns are reindexed to match
+    it rather than using an inner join. This preserves the full macro history
+    (back to 2000) even though some assets (e.g. DBC) only start in 2006.
+    Months before an asset's inception will show NaN in returns_df; the
+    backtester handles these by only running on months where returns are available.
+
+    Returns:
+        Tuple of (macro_df, returns_df) sharing the macro DatetimeIndex.
+    """
+    macro_df = load_macro_data()
+    returns_df = load_asset_returns()
+
+    # Reindex returns to macro's full index — introduces NaN for pre-inception months.
+    returns_df = returns_df.reindex(macro_df.index)
+
+    first_complete = returns_df.dropna().index[0].date()
+    print(
+        f"Combined dataset: macro spans {macro_df.index[0].date()} to {macro_df.index[-1].date()}, "
+        f"all assets available from {first_complete}"
+    )
+
+    return macro_df, returns_df
