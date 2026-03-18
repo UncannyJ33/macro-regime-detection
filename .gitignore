@@ -1,0 +1,8 @@
+__pycache__/
+.env
+.claude/
+PROMPTS.md
+CLAUDE.md
+outputs/
+*.pyc
+.DS_Store
