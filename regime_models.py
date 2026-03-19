@@ -58,6 +58,12 @@ def fit_pca(
 def fit_kmeans(pc_df: pd.DataFrame) -> pd.DataFrame:
     """Cluster PCA-reduced observations into macro regimes using K-Means.
 
+    PCA components have unequal variances by construction (PC1 > PC2 > ... > PCn),
+    so raw PC values would cause K-Means to weight high-variance components more
+    heavily when computing distances. A second StandardScaler pass equalizes that
+    before clustering. The scaler is applied internally and not returned — the
+    returned DataFrame retains the original (unscaled) PC values for interpretability.
+
     Uses config.N_REGIMES clusters with a fixed random seed for reproducibility.
     The resulting integer labels (0 to N_REGIMES-1) have no inherent ordering —
     regime identity is determined by the cluster centroid, not the label value.
@@ -70,8 +76,11 @@ def fit_kmeans(pc_df: pd.DataFrame) -> pd.DataFrame:
         Copy of pc_df with an additional "regime" column containing integer
         cluster labels in [0, config.N_REGIMES).
     """
+    scaler = StandardScaler()
+    scaled = scaler.fit_transform(pc_df)
+
     kmeans = KMeans(n_clusters=config.N_REGIMES, random_state=42, n_init=20)
-    labels = kmeans.fit_predict(pc_df)
+    labels = kmeans.fit_predict(scaled)
 
     result = pc_df.copy()
     result["regime"] = labels
@@ -103,15 +112,18 @@ def elbow_analysis(pc_df: pd.DataFrame) -> dict:
         - "inertia": list of float, within-cluster sum of squares for each K.
         - "silhouette": list of float, mean silhouette score for each K.
     """
+    # Scale PCs to equal variance before clustering, matching fit_kmeans behavior.
+    scaled = StandardScaler().fit_transform(pc_df)
+
     k_values = list(range(2, 9))
     inertia_scores = []
     silhouette_scores = []
 
     for k in k_values:
         km = KMeans(n_clusters=k, random_state=42, n_init=20)
-        labels = km.fit_predict(pc_df)
+        labels = km.fit_predict(scaled)
         inertia_scores.append(km.inertia_)
-        silhouette_scores.append(silhouette_score(pc_df, labels))
+        silhouette_scores.append(silhouette_score(scaled, labels))
 
     print(f"\n{'K':>4}  {'Inertia':>12}  {'Silhouette':>12}")
     print("-" * 32)
