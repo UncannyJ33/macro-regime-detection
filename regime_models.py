@@ -81,7 +81,7 @@ def fit_kmeans(pc_df: pd.DataFrame) -> pd.DataFrame:
     scaler = StandardScaler()
     scaled = scaler.fit_transform(pc_df)
 
-    kmeans = KMeans(n_clusters=config.N_REGIMES, random_state=42, n_init=20)
+    kmeans = KMeans(n_clusters=config.N_REGIMES, random_state=42, n_init=config.KMEANS_N_INIT)
     labels = kmeans.fit_predict(scaled)
 
     result = pc_df.copy()
@@ -117,12 +117,12 @@ def elbow_analysis(pc_df: pd.DataFrame) -> dict:
     # Scale PCs to equal variance before clustering, matching fit_kmeans behavior.
     scaled = StandardScaler().fit_transform(pc_df)
 
-    k_values = list(range(2, 9))
+    k_values = list(range(config.ELBOW_K_MIN, config.ELBOW_K_MAX + 1))
     inertia_scores = []
     silhouette_scores = []
 
     for k in k_values:
-        km = KMeans(n_clusters=k, random_state=42, n_init=20)
+        km = KMeans(n_clusters=k, random_state=42, n_init=config.KMEANS_N_INIT)
         labels = km.fit_predict(scaled)
         inertia_scores.append(km.inertia_)
         silhouette_scores.append(silhouette_score(scaled, labels))
@@ -172,11 +172,11 @@ def fit_hmm(pc_df: pd.DataFrame) -> tuple[pd.DataFrame, GaussianHMM]:
     best_score = -np.inf
 
     # Run multiple random initializations and keep the best by log-likelihood.
-    for seed in range(10):
+    for seed in range(config.HMM_N_INIT):
         hmm = GaussianHMM(
             n_components=config.N_REGIMES,
             covariance_type="full",
-            n_iter=200,
+            n_iter=config.HMM_N_ITER,
             random_state=seed,
         )
         hmm.fit(scaled)

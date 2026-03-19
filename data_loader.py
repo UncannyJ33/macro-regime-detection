@@ -27,8 +27,6 @@ _DAILY_SERIES: set[str] = {"10Y Yield", "2Y Yield"}
 # FRED series that are released quarterly and need forward-filling to monthly.
 _QUARTERLY_SERIES: set[str] = {"GDP Growth"}
 
-# Maximum number of months to forward-fill before dropping a row as unrecoverable.
-_FFILL_LIMIT: int = 3
 
 
 def load_macro_data() -> pd.DataFrame:
@@ -83,7 +81,7 @@ def load_macro_data() -> pd.DataFrame:
     df["yield_spread"] = df["yield_10y"] - df["yield_2y"]
 
     # Bridge short data gaps (e.g. holidays, late FRED releases) but don't over-impute.
-    df = df.ffill(limit=_FFILL_LIMIT)
+    df = df.ffill(limit=config.FFILL_LIMIT)
 
     # Drop any rows still missing data after forward-fill — likely a genuine gap.
     n_before = len(df)

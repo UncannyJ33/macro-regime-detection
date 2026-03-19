@@ -43,3 +43,12 @@ ASSETS: dict[str, str] = {
 N_REGIMES: int = 4          # Number of macro regimes to identify
 N_PCA_COMPONENTS: int = 4   # PCA components to retain after feature reduction
 ROLLING_WINDOW: int = 24    # Rolling window in months for feature smoothing
+
+FFILL_LIMIT: int = 3        # Max months to forward-fill FRED data gaps
+
+KMEANS_N_INIT: int = 20     # K-Means random restarts (best inertia is kept)
+ELBOW_K_MIN: int = 2        # Smallest K tested in elbow analysis
+ELBOW_K_MAX: int = 8        # Largest K tested in elbow analysis
+
+HMM_N_INIT: int = 10        # HMM random initializations (best log-likelihood kept)
+HMM_N_ITER: int = 200       # Max EM iterations per HMM fit
