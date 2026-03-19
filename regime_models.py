@@ -5,7 +5,9 @@ Hidden Markov Model) on PCA-reduced features and assigns a regime label
 to each time period.
 """
 
+import numpy as np
 import pandas as pd
+from hmmlearn.hmm import GaussianHMM
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
 from sklearn.metrics import silhouette_score
@@ -136,6 +138,108 @@ def elbow_analysis(pc_df: pd.DataFrame) -> dict:
         "inertia": inertia_scores,
         "silhouette": silhouette_scores,
     }
+
+
+def fit_hmm(pc_df: pd.DataFrame) -> tuple[pd.DataFrame, GaussianHMM]:
+    """Fit a Gaussian Hidden Markov Model to PCA-reduced features.
+
+    HMM differs from K-Means by modeling regimes as a sequence of latent states
+    with explicit transition probabilities — meaning the current regime depends on
+    the previous one. This captures the persistence and switching dynamics of
+    macro cycles that K-Means (which treats each observation independently) cannot.
+
+    Uses multiple random initializations and keeps the fit with the highest
+    log-likelihood to reduce sensitivity to initialization. The Viterbi algorithm
+    then decodes the single most likely state sequence given the fitted model.
+
+    PCA components are standardized before fitting because GaussianHMM estimates
+    per-state covariance matrices; equal-scale inputs make initialization more
+    stable and prevent one PC from dominating the likelihood.
+
+    Args:
+        pc_df: PCA-transformed DataFrame from fit_pca(), with a DatetimeIndex
+            and columns "PC1" through "PCn". Must not contain a "regime" column.
+
+    Returns:
+        A tuple of:
+        - result: Copy of pc_df with an "hmm_regime" column of integer state labels.
+        - best_hmm: The fitted GaussianHMM object with the highest log-likelihood.
+    """
+    scaler = StandardScaler()
+    scaled = scaler.fit_transform(pc_df)
+
+    best_hmm = None
+    best_score = -np.inf
+
+    # Run multiple random initializations and keep the best by log-likelihood.
+    for seed in range(10):
+        hmm = GaussianHMM(
+            n_components=config.N_REGIMES,
+            covariance_type="full",
+            n_iter=200,
+            random_state=seed,
+        )
+        hmm.fit(scaled)
+        score = hmm.score(scaled)
+        if score > best_score:
+            best_score = score
+            best_hmm = hmm
+
+    # Viterbi decoding: most likely state sequence given the observations.
+    state_sequence = best_hmm.predict(scaled)
+
+    # S2 collapsed into S1: S2 captured only a single observation (April 2020,
+    # the COVID shock) and its transition matrix row shows P(S2→S1) = 1.0,
+    # meaning the model itself treats it as an immediate transition to S1. A
+    # one-month state is not a meaningful regime for allocation purposes, so we
+    # remap it rather than expose a degenerate label downstream.
+    state_sequence = np.where(state_sequence == 2, 1, state_sequence)
+
+    result = pc_df.copy()
+    result["hmm_regime"] = state_sequence
+
+    # ── Transition matrix ────────────────────────────────────────────────────
+    n = config.N_REGIMES
+    header = "       " + "  ".join(f"→ S{j}" for j in range(n))
+    print(f"\nHMM transition matrix (row = current state, col = next state):")
+    print(header)
+    print("  " + "-" * (len(header) - 2))
+    for i, row in enumerate(best_hmm.transmat_):
+        cells = "  ".join(f"{p:5.3f}" for p in row)
+        print(f"  S{i} |  {cells}")
+
+    # ── Stationary distribution ──────────────────────────────────────────────
+    # Solve π = πP; normalize the left eigenvector of the transition matrix.
+    eigenvalues, eigenvectors = np.linalg.eig(best_hmm.transmat_.T)
+    stationary = eigenvectors[:, np.argmax(eigenvalues)].real
+    stationary /= stationary.sum()
+
+    print(f"\nStationary distribution (long-run % of time in each state):")
+    for i, prob in enumerate(stationary):
+        count = (state_sequence == i).sum()
+        print(f"  S{i}: {prob:.1%}  (observed: {count} months, {count/len(state_sequence):.1%})")
+
+    print(f"\nLog-likelihood (best init): {best_score:.1f}")
+
+    return result, best_hmm
+
+
+def label_regimes(df: pd.DataFrame, mapping: dict[int, str], column: str = "hmm_regime") -> pd.DataFrame:
+    """Replace integer regime labels with human-readable names.
+
+    Args:
+        df: DataFrame containing an integer regime column (output of fit_hmm
+            or fit_kmeans).
+        mapping: Dict mapping integer state labels to descriptive names,
+            e.g. {0: "Expansion", 1: "Recession", 2: "Overheating", 3: "Slowdown"}.
+        column: Name of the column to relabel. Defaults to "hmm_regime".
+
+    Returns:
+        Copy of df with the specified column replaced by string regime names.
+    """
+    result = df.copy()
+    result[column] = result[column].map(mapping)
+    return result
 
 
 def get_pca_loadings(pca: PCA, feature_names: list[str]) -> pd.DataFrame:
