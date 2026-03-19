@@ -5,6 +5,7 @@ plus yield-spread-specific signals. Returns a clean DataFrame with no NaN
 values, ready for PCA and regime modeling.
 """
 
+import numpy as np
 import pandas as pd
 
 import config
@@ -70,6 +71,14 @@ def engineer_features(macro_df: pd.DataFrame) -> pd.DataFrame:
     # Drop the leading rows that lack a full rolling window for z-score computation.
     # This also cleans up the NaN in the first row of roc columns.
     features = features.iloc[config.ROLLING_WINDOW:]
+
+    # pct_change() on yield_spread produces ±inf when the spread crosses zero
+    # (denominator near zero). Replace with NaN and forward-fill so the prior
+    # valid momentum reading is carried forward rather than poisoning the scaler.
+    inf_count = np.isinf(features.values).sum()
+    if inf_count > 0:
+        features = features.replace([np.inf, -np.inf], np.nan)
+        features = features.ffill()
 
     # Confirm no NaNs survived — acceleration has one extra NaN from chaining
     # pct_change on roc, which iloc above should have removed. Validate explicitly.

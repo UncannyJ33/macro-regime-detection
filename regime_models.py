@@ -6,7 +6,9 @@ to each time period.
 """
 
 import pandas as pd
+from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
+from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
 import config
@@ -51,6 +53,77 @@ def fit_pca(
         print(f"  PC{i + 1}: {var:.1%}  (cumulative: {cumulative:.1%})")
 
     return pc_df, pca, scaler
+
+
+def fit_kmeans(pc_df: pd.DataFrame) -> pd.DataFrame:
+    """Cluster PCA-reduced observations into macro regimes using K-Means.
+
+    Uses config.N_REGIMES clusters with a fixed random seed for reproducibility.
+    The resulting integer labels (0 to N_REGIMES-1) have no inherent ordering —
+    regime identity is determined by the cluster centroid, not the label value.
+
+    Args:
+        pc_df: PCA-transformed DataFrame from fit_pca(), with a DatetimeIndex
+            and columns "PC1" through "PCn".
+
+    Returns:
+        Copy of pc_df with an additional "regime" column containing integer
+        cluster labels in [0, config.N_REGIMES).
+    """
+    kmeans = KMeans(n_clusters=config.N_REGIMES, random_state=42, n_init=20)
+    labels = kmeans.fit_predict(pc_df)
+
+    result = pc_df.copy()
+    result["regime"] = labels
+
+    counts = result["regime"].value_counts().sort_index()
+    print(f"K-Means regimes (K={config.N_REGIMES}):")
+    for regime, count in counts.items():
+        pct = count / len(result) * 100
+        print(f"  Regime {regime}: {count} months ({pct:.1f}%)")
+
+    return result
+
+
+def elbow_analysis(pc_df: pd.DataFrame) -> dict:
+    """Compute inertia and silhouette score for K in [2, 8] to guide K selection.
+
+    Inertia (within-cluster sum of squares) decreases monotonically with K —
+    the "elbow" where the rate of decrease flattens is a reasonable K choice.
+    Silhouette score measures how well-separated clusters are; higher is better,
+    with a peak suggesting the natural number of clusters.
+
+    Args:
+        pc_df: PCA-transformed DataFrame from fit_pca(). Regime column must
+            not be present — pass the raw pc_df, not the output of fit_kmeans.
+
+    Returns:
+        Dict with keys:
+        - "k_values": list of int, K values tested (2 through 8).
+        - "inertia": list of float, within-cluster sum of squares for each K.
+        - "silhouette": list of float, mean silhouette score for each K.
+    """
+    k_values = list(range(2, 9))
+    inertia_scores = []
+    silhouette_scores = []
+
+    for k in k_values:
+        km = KMeans(n_clusters=k, random_state=42, n_init=20)
+        labels = km.fit_predict(pc_df)
+        inertia_scores.append(km.inertia_)
+        silhouette_scores.append(silhouette_score(pc_df, labels))
+
+    print(f"\n{'K':>4}  {'Inertia':>12}  {'Silhouette':>12}")
+    print("-" * 32)
+    for k, inertia, sil in zip(k_values, inertia_scores, silhouette_scores):
+        marker = " <--" if k == config.N_REGIMES else ""
+        print(f"{k:>4}  {inertia:>12.1f}  {sil:>12.4f}{marker}")
+
+    return {
+        "k_values": k_values,
+        "inertia": inertia_scores,
+        "silhouette": silhouette_scores,
+    }
 
 
 def get_pca_loadings(pca: PCA, feature_names: list[str]) -> pd.DataFrame:
