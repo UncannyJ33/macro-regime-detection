@@ -53,6 +53,23 @@ ELBOW_K_MAX: int = 8        # Largest K tested in elbow analysis
 HMM_N_INIT: int = 10        # HMM random initializations (best log-likelihood kept)
 HMM_N_ITER: int = 200       # Max EM iterations per HMM fit
 
+RANDOM_SEED: int = 42       # Seeds numpy before model fits for reproducible cluster IDs
+
+# Maps HMM Viterbi state integers to human-readable regime names.
+# Only states 0, 1, and 3 appear — state 2 is intentionally absent because
+# fit_hmm() collapses it: the model assigned state 2 to a single month
+# (April 2020, the COVID crash), which is too short to be a meaningful regime
+# and immediately transitions back to state 1. That month gets absorbed into
+# state 1 (Stagflation) instead. As a result, "Contraction" has no
+# corresponding HMM state; the Contraction allocation rule in REGIME_ALLOCATIONS
+# is defined but will never be triggered when running with HMM labels.
+HMM_REGIME_LABELS: dict[int, str] = {
+    0: "Expansion",    # most common state: moderate growth, low unemployment, normal conditions
+    1: "Stagflation",  # stagnant growth (~0% GDP), highest CPI, elevated unemployment
+    3: "Risk-off",     # post-crisis recovery: highest unemployment legacy, lowest CPI,
+                       # steepest yield curve (Fed still accommodative), GDP rebounding
+}
+
 # ── Backtester ────────────────────────────────────────────────────────────────
 
 RISK_FREE_RATE: float = 0.02  # Annual risk-free rate used in Sharpe ratio calculation
