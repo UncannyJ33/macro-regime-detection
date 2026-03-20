@@ -273,6 +273,110 @@ def plot_return_distributions(
     return fig
 
 
+def plot_return_distributions_box(
+    regime_df: pd.DataFrame,
+    returns_df: pd.DataFrame,
+    regime_col: str = "regime",
+    save: bool = True,
+) -> plt.Figure:
+    """Plots monthly return distributions as box plots, faceted by regime.
+
+    Same 2×2 grid layout as plot_return_distributions but uses box plots
+    instead of violins — showing median, IQR box, whiskers (1.5×IQR), and
+    individual outlier dots. Easier to read exact quartile positions at a glance.
+
+    Args:
+        regime_df: DataFrame with a DatetimeIndex and a column of regime labels.
+        returns_df: DataFrame with monthly asset returns (decimal).
+        regime_col: Name of the column in regime_df holding regime labels.
+        save: If True, saves to outputs/return_distributions_box.png.
+
+    Returns:
+        The matplotlib Figure object.
+    """
+    OUTPUTS_DIR.mkdir(exist_ok=True)
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 9), sharey=True)
+    fig.suptitle(
+        "Monthly Return Distributions by Regime (Box Plots)",
+        fontsize=15, fontweight="bold", y=1.01,
+    )
+
+    combined = regime_df[[regime_col]].join(returns_df[TICKERS], how="inner").dropna()
+    positions = [1, 2, 3, 4]
+
+    for ax, regime in zip(axes.flat, REGIME_ORDER):
+        subset = combined[combined[regime_col] == regime]
+        data = [subset[ticker].values for ticker in TICKERS]
+
+        bp = ax.boxplot(
+            data,
+            positions=positions,
+            widths=0.5,
+            patch_artist=True,       # filled boxes
+            notch=False,
+            showfliers=True,
+            flierprops=dict(marker="o", markersize=3.5, linestyle="none", alpha=0.5),
+            medianprops=dict(color="#111111", linewidth=2.0),
+            whiskerprops=dict(linewidth=1.2, color="#444444"),
+            capprops=dict(linewidth=1.2, color="#444444"),
+            boxprops=dict(linewidth=0.8),
+        )
+
+        for patch, ticker in zip(bp["boxes"], TICKERS):
+            patch.set_facecolor(ASSET_COLORS[ticker])
+            patch.set_alpha(0.82)
+
+        # Color outlier dots to match their asset.
+        for flier, ticker in zip(bp["fliers"], TICKERS):
+            flier.set_markerfacecolor(ASSET_COLORS[ticker])
+            flier.set_markeredgecolor(ASSET_COLORS[ticker])
+
+        ax.axhline(0, color="#888888", linewidth=0.8, linestyle="--", zorder=0)
+
+        ax.set_title(
+            f"{regime}  (n={len(subset)})",
+            fontsize=12, fontweight="bold",
+            color=REGIME_COLORS[regime], pad=6,
+        )
+
+        ax.set_xticks(positions)
+        ax.set_xticklabels(TICKERS, fontsize=11)
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.1%}"))
+        ax.tick_params(axis="y", labelsize=9)
+
+        for spine in ["top", "right"]:
+            ax.spines[spine].set_visible(False)
+        ax.spines["left"].set_color("#cccccc")
+        ax.spines["bottom"].set_color("#cccccc")
+
+    for ax in axes[:, 0]:
+        ax.set_ylabel("Monthly Return", fontsize=10)
+
+    legend_patches = [
+        mpatches.Patch(facecolor=color, label=ticker, edgecolor="#333333", linewidth=0.6)
+        for ticker, color in ASSET_COLORS.items()
+    ]
+    fig.legend(
+        handles=legend_patches,
+        loc="lower center",
+        ncol=4,
+        fontsize=10,
+        framealpha=0.9,
+        edgecolor="#cccccc",
+        bbox_to_anchor=(0.5, -0.04),
+    )
+
+    fig.tight_layout()
+
+    if save:
+        out_path = OUTPUTS_DIR / "return_distributions_box.png"
+        fig.savefig(out_path, dpi=150, bbox_inches="tight")
+        print(f"Saved: {out_path}")
+
+    return fig
+
+
 def plot_allocation_heatmap(save: bool = True) -> plt.Figure:
     """Renders a heatmap of regime allocation weights colored by risk-on tilt.
 
