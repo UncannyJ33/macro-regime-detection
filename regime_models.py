@@ -15,6 +15,31 @@ from sklearn.preprocessing import StandardScaler
 
 import config
 
+# Regimes with fewer months than this threshold are flagged as too sparse
+# to produce reliable allocation signals or distribution statistics.
+_MIN_REGIME_MONTHS = 6
+
+
+def _validate_no_nans(df: pd.DataFrame, fn_name: str) -> None:
+    """Raises ValueError if df contains any NaN values.
+
+    Intended as a fast pre-condition check at the entry point of each modeling
+    function so that numerical issues upstream (FRED gaps, z-score std=0, etc.)
+    are caught with a clear message rather than propagating into silent failures
+    inside sklearn or hmmlearn.
+
+    Args:
+        df: The input DataFrame to validate.
+        fn_name: Calling function name, used in the error message.
+    """
+    n_nans = df.isna().sum().sum()
+    if n_nans > 0:
+        bad_cols = df.columns[df.isna().any()].tolist()
+        raise ValueError(
+            f"{fn_name}: input DataFrame contains {n_nans} NaN value(s) "
+            f"in columns: {bad_cols}. Ensure feature engineering completed cleanly."
+        )
+
 
 def fit_pca(
     features: pd.DataFrame,
@@ -37,6 +62,8 @@ def fit_pca(
         - pca: Fitted PCA object (sklearn.decomposition.PCA).
         - scaler: Fitted StandardScaler object used to standardize inputs.
     """
+    _validate_no_nans(features, "fit_pca")
+
     scaler = StandardScaler()
     scaled = scaler.fit_transform(features)
 
@@ -78,6 +105,8 @@ def fit_kmeans(pc_df: pd.DataFrame) -> pd.DataFrame:
         Copy of pc_df with an additional "regime" column containing integer
         cluster labels in [0, config.N_REGIMES).
     """
+    _validate_no_nans(pc_df, "fit_kmeans")
+
     scaler = StandardScaler()
     scaled = scaler.fit_transform(pc_df)
 
@@ -91,7 +120,8 @@ def fit_kmeans(pc_df: pd.DataFrame) -> pd.DataFrame:
     print(f"K-Means regimes (K={config.N_REGIMES}):")
     for regime, count in counts.items():
         pct = count / len(result) * 100
-        print(f"  Regime {regime}: {count} months ({pct:.1f}%)")
+        sparse_flag = "  *** sparse — fewer than 6 months ***" if count < _MIN_REGIME_MONTHS else ""
+        print(f"  Regime {regime}: {count} months ({pct:.1f}%){sparse_flag}")
 
     return result
 
@@ -165,6 +195,8 @@ def fit_hmm(pc_df: pd.DataFrame) -> tuple[pd.DataFrame, GaussianHMM]:
         - result: Copy of pc_df with an "hmm_regime" column of integer state labels.
         - best_hmm: The fitted GaussianHMM object with the highest log-likelihood.
     """
+    _validate_no_nans(pc_df, "fit_hmm")
+
     scaler = StandardScaler()
     scaled = scaler.fit_transform(pc_df)
 

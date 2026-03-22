@@ -200,6 +200,35 @@ def plot_return_distributions(
 
     for ax, regime in zip(axes.flat, REGIME_ORDER):
         subset = combined[combined[regime_col] == regime]
+
+        ax.set_title(
+            f"{regime}  (n={len(subset)})",
+            fontsize=12,
+            fontweight="bold",
+            color=REGIME_COLORS[regime],
+            pad=6,
+        )
+        ax.set_xticks(positions)
+        ax.set_xticklabels(TICKERS, fontsize=11)
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.1%}"))
+        ax.tick_params(axis="y", labelsize=9)
+        for spine in ["top", "right"]:
+            ax.spines[spine].set_visible(False)
+        ax.spines["left"].set_color("#cccccc")
+        ax.spines["bottom"].set_color("#cccccc")
+        ax.set_axisbelow(True)
+
+        # violinplot requires at least 2 observations per group to fit a KDE.
+        # Show a clear annotation rather than crashing on empty or single-obs regimes.
+        if len(subset) < 2:
+            ax.text(
+                0.5, 0.5, f"No data (n={len(subset)})",
+                transform=ax.transAxes,
+                ha="center", va="center",
+                fontsize=11, color="#888888", style="italic",
+            )
+            continue
+
         data = [subset[ticker].values for ticker in TICKERS]
 
         parts = ax.violinplot(
@@ -223,26 +252,6 @@ def plot_return_distributions(
 
         # Zero-return reference line so positive/negative regimes read clearly.
         ax.axhline(0, color="#888888", linewidth=0.8, linestyle="--", zorder=0)
-
-        # Subplot title tinted in the regime's color to echo the timeline chart.
-        ax.set_title(
-            f"{regime}  (n={len(subset)})",
-            fontsize=12,
-            fontweight="bold",
-            color=REGIME_COLORS[regime],
-            pad=6,
-        )
-
-        ax.set_xticks(positions)
-        ax.set_xticklabels(TICKERS, fontsize=11)
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.1%}"))
-        ax.tick_params(axis="y", labelsize=9)
-
-        for spine in ["top", "right"]:
-            ax.spines[spine].set_visible(False)
-        ax.spines["left"].set_color("#cccccc")
-        ax.spines["bottom"].set_color("#cccccc")
-        ax.set_axisbelow(True)
 
     # Shared y-axis label on the left column only.
     for ax in axes[:, 0]:
@@ -307,6 +316,32 @@ def plot_return_distributions_box(
 
     for ax, regime in zip(axes.flat, REGIME_ORDER):
         subset = combined[combined[regime_col] == regime]
+
+        ax.set_title(
+            f"{regime}  (n={len(subset)})",
+            fontsize=12, fontweight="bold",
+            color=REGIME_COLORS[regime], pad=6,
+        )
+        ax.set_xticks(positions)
+        ax.set_xticklabels(TICKERS, fontsize=11)
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.1%}"))
+        ax.tick_params(axis="y", labelsize=9)
+        for spine in ["top", "right"]:
+            ax.spines[spine].set_visible(False)
+        ax.spines["left"].set_color("#cccccc")
+        ax.spines["bottom"].set_color("#cccccc")
+
+        # boxplot requires at least 1 observation; guard against empty regimes
+        # (e.g. a regime present in allocations but absent from the model labels).
+        if len(subset) == 0:
+            ax.text(
+                0.5, 0.5, "No data (n=0)",
+                transform=ax.transAxes,
+                ha="center", va="center",
+                fontsize=11, color="#888888", style="italic",
+            )
+            continue
+
         data = [subset[ticker].values for ticker in TICKERS]
 
         bp = ax.boxplot(
@@ -333,22 +368,6 @@ def plot_return_distributions_box(
             flier.set_markeredgecolor(ASSET_COLORS[ticker])
 
         ax.axhline(0, color="#888888", linewidth=0.8, linestyle="--", zorder=0)
-
-        ax.set_title(
-            f"{regime}  (n={len(subset)})",
-            fontsize=12, fontweight="bold",
-            color=REGIME_COLORS[regime], pad=6,
-        )
-
-        ax.set_xticks(positions)
-        ax.set_xticklabels(TICKERS, fontsize=11)
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.1%}"))
-        ax.tick_params(axis="y", labelsize=9)
-
-        for spine in ["top", "right"]:
-            ax.spines[spine].set_visible(False)
-        ax.spines["left"].set_color("#cccccc")
-        ax.spines["bottom"].set_color("#cccccc")
 
     for ax in axes[:, 0]:
         ax.set_ylabel("Monthly Return", fontsize=10)

@@ -109,7 +109,8 @@ def run_pipeline() -> None:
     print("\nMonths per HMM regime:")
     for regime, count in regime_counts.items():
         pct = count / len(hmm_labeled) * 100
-        print(f"  {regime:<14} {count:>4} months  ({pct:.1f}%)")
+        sparse_flag = "  *** sparse — fewer than 6 months ***" if count < 6 else ""
+        print(f"  {regime:<14} {count:>4} months  ({pct:.1f}%){sparse_flag}")
 
     # ── 6. Backtest ───────────────────────────────────────────────────────────
     _section("Backtesting — regime strategy vs 60/40 baseline")

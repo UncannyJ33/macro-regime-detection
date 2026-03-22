@@ -56,7 +56,11 @@ def engineer_features(macro_df: pd.DataFrame) -> pd.DataFrame:
         # Rolling z-score: how many standard deviations from the rolling mean.
         # min_periods=config.ROLLING_WINDOW ensures we only compute on full windows.
         rolling = series.rolling(window=config.ROLLING_WINDOW, min_periods=config.ROLLING_WINDOW)
-        features[f"{indicator}_zscore"] = (series - rolling.mean()) / rolling.std()
+        rolling_std = rolling.std()
+        z_score = (series - rolling.mean()) / rolling_std
+        # A constant series within the window yields std=0, producing NaN via 0/0.
+        # By convention, a z-score of 0 is correct: the value is exactly at its mean.
+        features[f"{indicator}_zscore"] = z_score.where(rolling_std != 0, 0.0)
 
         # Month-over-month percentage change: captures directional momentum.
         features[f"{indicator}_roc"] = series.pct_change()
