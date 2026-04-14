@@ -1,8 +1,7 @@
 """Fits unsupervised models to identify macro regimes.
 
-Trains and evaluates clustering / sequence models (e.g., K-Means, GMM,
-Hidden Markov Model) on PCA-reduced features and assigns a regime label
-to each time period.
+Trains K-Means and Hidden Markov Model on PCA-reduced features and
+assigns a regime label to each time period.
 """
 
 import numpy as np
@@ -10,7 +9,6 @@ import pandas as pd
 from hmmlearn.hmm import GaussianHMM
 from sklearn.cluster import KMeans
 from sklearn.decomposition import PCA
-from sklearn.metrics import silhouette_score
 from sklearn.preprocessing import StandardScaler
 
 import config
@@ -67,7 +65,7 @@ def fit_pca(
     scaler = StandardScaler()
     scaled = scaler.fit_transform(features)
 
-    pca = PCA(n_components=config.N_PCA_COMPONENTS, random_state=42)
+    pca = PCA(n_components=config.N_PCA_COMPONENTS, random_state=config.RANDOM_SEED)
     components = pca.fit_transform(scaled)
 
     pc_columns = [f"PC{i + 1}" for i in range(config.N_PCA_COMPONENTS)]
@@ -110,7 +108,11 @@ def fit_kmeans(pc_df: pd.DataFrame) -> pd.DataFrame:
     scaler = StandardScaler()
     scaled = scaler.fit_transform(pc_df)
 
-    kmeans = KMeans(n_clusters=config.N_REGIMES, random_state=42, n_init=config.KMEANS_N_INIT)
+    kmeans = KMeans(
+        n_clusters=config.N_REGIMES,
+        random_state=config.RANDOM_SEED,
+        n_init=config.KMEANS_N_INIT,
+    )
     labels = kmeans.fit_predict(scaled)
 
     result = pc_df.copy()
@@ -124,50 +126,6 @@ def fit_kmeans(pc_df: pd.DataFrame) -> pd.DataFrame:
         print(f"  Regime {regime}: {count} months ({pct:.1f}%){sparse_flag}")
 
     return result
-
-
-def elbow_analysis(pc_df: pd.DataFrame) -> dict:
-    """Compute inertia and silhouette score for K in [2, 8] to guide K selection.
-
-    Inertia (within-cluster sum of squares) decreases monotonically with K —
-    the "elbow" where the rate of decrease flattens is a reasonable K choice.
-    Silhouette score measures how well-separated clusters are; higher is better,
-    with a peak suggesting the natural number of clusters.
-
-    Args:
-        pc_df: PCA-transformed DataFrame from fit_pca(). Regime column must
-            not be present — pass the raw pc_df, not the output of fit_kmeans.
-
-    Returns:
-        Dict with keys:
-        - "k_values": list of int, K values tested (2 through 8).
-        - "inertia": list of float, within-cluster sum of squares for each K.
-        - "silhouette": list of float, mean silhouette score for each K.
-    """
-    # Scale PCs to equal variance before clustering, matching fit_kmeans behavior.
-    scaled = StandardScaler().fit_transform(pc_df)
-
-    k_values = list(range(config.ELBOW_K_MIN, config.ELBOW_K_MAX + 1))
-    inertia_scores = []
-    silhouette_scores = []
-
-    for k in k_values:
-        km = KMeans(n_clusters=k, random_state=42, n_init=config.KMEANS_N_INIT)
-        labels = km.fit_predict(scaled)
-        inertia_scores.append(km.inertia_)
-        silhouette_scores.append(silhouette_score(scaled, labels))
-
-    print(f"\n{'K':>4}  {'Inertia':>12}  {'Silhouette':>12}")
-    print("-" * 32)
-    for k, inertia, sil in zip(k_values, inertia_scores, silhouette_scores):
-        marker = " <--" if k == config.N_REGIMES else ""
-        print(f"{k:>4}  {inertia:>12.1f}  {sil:>12.4f}{marker}")
-
-    return {
-        "k_values": k_values,
-        "inertia": inertia_scores,
-        "silhouette": silhouette_scores,
-    }
 
 
 def fit_hmm(pc_df: pd.DataFrame) -> tuple[pd.DataFrame, GaussianHMM]:

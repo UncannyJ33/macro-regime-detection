@@ -148,6 +148,7 @@ def plot_regime_timeline(
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved: {out_path}")
 
+    plt.close(fig)
     return fig
 
 
@@ -162,6 +163,96 @@ ASSET_COLORS: dict[str, str] = {
 
 REGIME_ORDER = ["Expansion", "Contraction", "Stagflation", "Risk-off"]
 TICKERS = list(config.ASSETS.keys())  # ["SPY", "TLT", "GLD", "DBC"]
+_POSITIONS = [1, 2, 3, 4]
+
+
+def _setup_distribution_grid(
+    regime_df: pd.DataFrame,
+    returns_df: pd.DataFrame,
+    regime_col: str,
+    title: str,
+) -> tuple[plt.Figure, np.ndarray, pd.DataFrame, dict[str, pd.DataFrame]]:
+    """Creates a 2x2 grid of styled axes for per-regime distribution plots.
+
+    Handles the shared layout work: figure/suptitle creation, data joining,
+    axis titles, tick formatting, spine styling, and subsetting by regime.
+
+    Args:
+        regime_df: DataFrame with a DatetimeIndex and a column of regime labels.
+        returns_df: DataFrame with monthly asset returns (decimal).
+        regime_col: Name of the column in regime_df holding regime labels.
+        title: Figure suptitle text.
+
+    Returns:
+        Tuple of (fig, axes, combined, subsets) where subsets maps each regime
+        name to its filtered DataFrame slice.
+    """
+    OUTPUTS_DIR.mkdir(exist_ok=True)
+
+    fig, axes = plt.subplots(2, 2, figsize=(14, 9), sharey=True)
+    fig.suptitle(title, fontsize=15, fontweight="bold", y=1.01)
+
+    combined = regime_df[[regime_col]].join(returns_df[TICKERS], how="inner").dropna()
+
+    subsets: dict[str, pd.DataFrame] = {}
+    for ax, regime in zip(axes.flat, REGIME_ORDER):
+        subset = combined[combined[regime_col] == regime]
+        subsets[regime] = subset
+
+        ax.set_title(
+            f"{regime}  (n={len(subset)})",
+            fontsize=12, fontweight="bold",
+            color=REGIME_COLORS[regime], pad=6,
+        )
+        ax.set_xticks(_POSITIONS)
+        ax.set_xticklabels(TICKERS, fontsize=11)
+        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.1%}"))
+        ax.tick_params(axis="y", labelsize=9)
+        for spine in ["top", "right"]:
+            ax.spines[spine].set_visible(False)
+        ax.spines["left"].set_color("#cccccc")
+        ax.spines["bottom"].set_color("#cccccc")
+
+    for ax in axes[:, 0]:
+        ax.set_ylabel("Monthly Return", fontsize=10)
+
+    return fig, axes, combined, subsets
+
+
+def _finalize_distribution_fig(
+    fig: plt.Figure,
+    filename: str,
+    save: bool,
+) -> None:
+    """Adds asset-color legend, tightens layout, saves, and closes figure.
+
+    Args:
+        fig: The matplotlib Figure to finalize.
+        filename: Output filename (e.g. "return_distributions.png").
+        save: If True, saves to outputs/{filename}.
+    """
+    legend_patches = [
+        mpatches.Patch(facecolor=color, label=ticker, edgecolor="#333333", linewidth=0.6)
+        for ticker, color in ASSET_COLORS.items()
+    ]
+    fig.legend(
+        handles=legend_patches,
+        loc="lower center",
+        ncol=4,
+        fontsize=10,
+        framealpha=0.9,
+        edgecolor="#cccccc",
+        bbox_to_anchor=(0.5, -0.04),
+    )
+
+    fig.tight_layout()
+
+    if save:
+        out_path = OUTPUTS_DIR / filename
+        fig.savefig(out_path, dpi=150, bbox_inches="tight")
+        print(f"Saved: {out_path}")
+
+    plt.close(fig)
 
 
 def plot_return_distributions(
@@ -170,9 +261,9 @@ def plot_return_distributions(
     regime_col: str = "regime",
     save: bool = True,
 ) -> plt.Figure:
-    """Plots monthly return distributions per asset, faceted by regime.
+    """Plots monthly return distributions per asset as violins, faceted by regime.
 
-    Renders a 2×2 grid of violin plots — one subplot per regime — with four
+    Renders a 2x2 grid of violin plots — one subplot per regime — with four
     violins per subplot (one per asset). Each subplot title is tinted in the
     regime's canonical color to visually link this chart to the timeline.
 
@@ -185,41 +276,16 @@ def plot_return_distributions(
     Returns:
         The matplotlib Figure object.
     """
-    OUTPUTS_DIR.mkdir(exist_ok=True)
-
-    fig, axes = plt.subplots(2, 2, figsize=(14, 9), sharey=True)
-    fig.suptitle(
+    fig, axes, _, subsets = _setup_distribution_grid(
+        regime_df, returns_df, regime_col,
         "Monthly Return Distributions by Regime",
-        fontsize=15, fontweight="bold", y=1.01,
     )
 
-    # Align regime labels with returns on the shared date index.
-    combined = regime_df[[regime_col]].join(returns_df[TICKERS], how="inner").dropna()
-
-    positions = [1, 2, 3, 4]
-
     for ax, regime in zip(axes.flat, REGIME_ORDER):
-        subset = combined[combined[regime_col] == regime]
-
-        ax.set_title(
-            f"{regime}  (n={len(subset)})",
-            fontsize=12,
-            fontweight="bold",
-            color=REGIME_COLORS[regime],
-            pad=6,
-        )
-        ax.set_xticks(positions)
-        ax.set_xticklabels(TICKERS, fontsize=11)
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.1%}"))
-        ax.tick_params(axis="y", labelsize=9)
-        for spine in ["top", "right"]:
-            ax.spines[spine].set_visible(False)
-        ax.spines["left"].set_color("#cccccc")
-        ax.spines["bottom"].set_color("#cccccc")
+        subset = subsets[regime]
         ax.set_axisbelow(True)
 
         # violinplot requires at least 2 observations per group to fit a KDE.
-        # Show a clear annotation rather than crashing on empty or single-obs regimes.
         if len(subset) < 2:
             ax.text(
                 0.5, 0.5, f"No data (n={len(subset)})",
@@ -233,13 +299,12 @@ def plot_return_distributions(
 
         parts = ax.violinplot(
             data,
-            positions=positions,
+            positions=_POSITIONS,
             showmedians=True,
             showextrema=True,
             widths=0.65,
         )
 
-        # Color each violin body by its asset and style the stat lines.
         for body, ticker in zip(parts["bodies"], TICKERS):
             body.set_facecolor(ASSET_COLORS[ticker])
             body.set_edgecolor("#333333")
@@ -250,35 +315,9 @@ def plot_return_distributions(
             parts[partname].set_edgecolor("#333333")
             parts[partname].set_linewidth(1.2)
 
-        # Zero-return reference line so positive/negative regimes read clearly.
         ax.axhline(0, color="#888888", linewidth=0.8, linestyle="--", zorder=0)
 
-    # Shared y-axis label on the left column only.
-    for ax in axes[:, 0]:
-        ax.set_ylabel("Monthly Return", fontsize=10)
-
-    # Legend for asset colors placed outside the grid at the bottom.
-    legend_patches = [
-        mpatches.Patch(facecolor=color, label=ticker, edgecolor="#333333", linewidth=0.6)
-        for ticker, color in ASSET_COLORS.items()
-    ]
-    fig.legend(
-        handles=legend_patches,
-        loc="lower center",
-        ncol=4,
-        fontsize=10,
-        framealpha=0.9,
-        edgecolor="#cccccc",
-        bbox_to_anchor=(0.5, -0.04),
-    )
-
-    fig.tight_layout()
-
-    if save:
-        out_path = OUTPUTS_DIR / "return_distributions.png"
-        fig.savefig(out_path, dpi=150, bbox_inches="tight")
-        print(f"Saved: {out_path}")
-
+    _finalize_distribution_fig(fig, "return_distributions.png", save)
     return fig
 
 
@@ -290,8 +329,8 @@ def plot_return_distributions_box(
 ) -> plt.Figure:
     """Plots monthly return distributions as box plots, faceted by regime.
 
-    Same 2×2 grid layout as plot_return_distributions but uses box plots
-    instead of violins — showing median, IQR box, whiskers (1.5×IQR), and
+    Same 2x2 grid layout as plot_return_distributions but uses box plots
+    instead of violins — showing median, IQR box, whiskers (1.5xIQR), and
     individual outlier dots. Easier to read exact quartile positions at a glance.
 
     Args:
@@ -303,36 +342,14 @@ def plot_return_distributions_box(
     Returns:
         The matplotlib Figure object.
     """
-    OUTPUTS_DIR.mkdir(exist_ok=True)
-
-    fig, axes = plt.subplots(2, 2, figsize=(14, 9), sharey=True)
-    fig.suptitle(
+    fig, axes, _, subsets = _setup_distribution_grid(
+        regime_df, returns_df, regime_col,
         "Monthly Return Distributions by Regime (Box Plots)",
-        fontsize=15, fontweight="bold", y=1.01,
     )
 
-    combined = regime_df[[regime_col]].join(returns_df[TICKERS], how="inner").dropna()
-    positions = [1, 2, 3, 4]
-
     for ax, regime in zip(axes.flat, REGIME_ORDER):
-        subset = combined[combined[regime_col] == regime]
+        subset = subsets[regime]
 
-        ax.set_title(
-            f"{regime}  (n={len(subset)})",
-            fontsize=12, fontweight="bold",
-            color=REGIME_COLORS[regime], pad=6,
-        )
-        ax.set_xticks(positions)
-        ax.set_xticklabels(TICKERS, fontsize=11)
-        ax.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.1%}"))
-        ax.tick_params(axis="y", labelsize=9)
-        for spine in ["top", "right"]:
-            ax.spines[spine].set_visible(False)
-        ax.spines["left"].set_color("#cccccc")
-        ax.spines["bottom"].set_color("#cccccc")
-
-        # boxplot requires at least 1 observation; guard against empty regimes
-        # (e.g. a regime present in allocations but absent from the model labels).
         if len(subset) == 0:
             ax.text(
                 0.5, 0.5, "No data (n=0)",
@@ -346,9 +363,9 @@ def plot_return_distributions_box(
 
         bp = ax.boxplot(
             data,
-            positions=positions,
+            positions=_POSITIONS,
             widths=0.5,
-            patch_artist=True,       # filled boxes
+            patch_artist=True,
             notch=False,
             showfliers=True,
             flierprops=dict(marker="o", markersize=3.5, linestyle="none", alpha=0.5),
@@ -362,37 +379,13 @@ def plot_return_distributions_box(
             patch.set_facecolor(ASSET_COLORS[ticker])
             patch.set_alpha(0.82)
 
-        # Color outlier dots to match their asset.
         for flier, ticker in zip(bp["fliers"], TICKERS):
             flier.set_markerfacecolor(ASSET_COLORS[ticker])
             flier.set_markeredgecolor(ASSET_COLORS[ticker])
 
         ax.axhline(0, color="#888888", linewidth=0.8, linestyle="--", zorder=0)
 
-    for ax in axes[:, 0]:
-        ax.set_ylabel("Monthly Return", fontsize=10)
-
-    legend_patches = [
-        mpatches.Patch(facecolor=color, label=ticker, edgecolor="#333333", linewidth=0.6)
-        for ticker, color in ASSET_COLORS.items()
-    ]
-    fig.legend(
-        handles=legend_patches,
-        loc="lower center",
-        ncol=4,
-        fontsize=10,
-        framealpha=0.9,
-        edgecolor="#cccccc",
-        bbox_to_anchor=(0.5, -0.04),
-    )
-
-    fig.tight_layout()
-
-    if save:
-        out_path = OUTPUTS_DIR / "return_distributions_box.png"
-        fig.savefig(out_path, dpi=150, bbox_inches="tight")
-        print(f"Saved: {out_path}")
-
+    _finalize_distribution_fig(fig, "return_distributions_box.png", save)
     return fig
 
 
@@ -500,4 +493,5 @@ def plot_allocation_heatmap(save: bool = True) -> plt.Figure:
         fig.savefig(out_path, dpi=150, bbox_inches="tight")
         print(f"Saved: {out_path}")
 
+    plt.close(fig)
     return fig

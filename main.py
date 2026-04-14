@@ -6,6 +6,7 @@ entry point for reproducing the full analysis.
 """
 
 import numpy as np
+import pandas as pd
 
 import config
 from backtester import compare_strategies
@@ -31,7 +32,7 @@ def _section(title: str) -> None:
     print(f"{'=' * 60}")
 
 
-def _build_kmeans_labels(macro_df, kmeans_result: object) -> dict[int, str]:
+def _build_kmeans_labels(macro_df: pd.DataFrame, kmeans_result: pd.DataFrame) -> dict[int, str]:
     """Derives the K-Means integer→name mapping from cluster characteristics.
 
     K-Means cluster IDs are assigned arbitrarily, so we can't hardcode them.
@@ -51,14 +52,11 @@ def _build_kmeans_labels(macro_df, kmeans_result: object) -> dict[int, str]:
     labeled = macro_df.join(kmeans_result[["regime"]], how="inner")
     means = labeled.groupby("regime")[["gdp_growth", "cpi", "unemployment"]].mean()
 
-    gdp_rank   = means["gdp_growth"].rank()
-    unemp_rank = means["unemployment"].rank(ascending=False)
-
-    expansion_id   = int(gdp_rank.idxmax())
-    contraction_id = int(unemp_rank.idxmin())
+    expansion_id   = int(means["gdp_growth"].idxmax())
+    contraction_id = int(means["unemployment"].idxmax())
     # Guard against the rare case where both heuristics point to the same cluster.
     if contraction_id == expansion_id:
-        contraction_id = int(unemp_rank.nsmallest(2).index[-1])
+        contraction_id = int(means["unemployment"].nlargest(2).index[-1])
 
     remaining      = [i for i in means.index if i not in (expansion_id, contraction_id)]
     stagflation_id = int(means.loc[remaining, "cpi"].idxmax())

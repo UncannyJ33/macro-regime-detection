@@ -11,16 +11,6 @@ import pandas as pd
 import config
 
 
-def define_allocations() -> dict[str, dict[str, float]]:
-    """Returns the regime-conditional allocation rules from config.
-
-    Returns:
-        Mapping from regime name to a dict of {ticker: weight} pairs.
-        Weights within each regime sum to 1.0.
-    """
-    return config.REGIME_ALLOCATIONS
-
-
 def run_backtest(
     regime_df: pd.DataFrame,
     returns_df: pd.DataFrame,
@@ -43,19 +33,17 @@ def run_backtest(
     Returns:
         Monthly portfolio return series indexed by date, named "regime_strategy".
     """
-    # Combine regime labels with asset returns on the shared date index.
-    # inner join + dropna ensures both regime and all asset returns are present.
     tickers = list(next(iter(allocations.values())).keys())
     combined = regime_df[[regime_col]].join(returns_df[tickers], how="inner").dropna()
 
-    monthly_returns = []
-    for date, row in combined.iterrows():
-        regime = row[regime_col]
-        weights = allocations[regime]
-        port_return = sum(weights[ticker] * row[ticker] for ticker in weights)
-        monthly_returns.append(port_return)
-
-    return pd.Series(monthly_returns, index=combined.index, name="regime_strategy")
+    # Build a weight matrix: each row gets weights corresponding to its regime.
+    weight_df = pd.DataFrame(
+        [allocations[regime] for regime in combined[regime_col]],
+        index=combined.index,
+        columns=tickers,
+    )
+    port_returns = (combined[tickers] * weight_df).sum(axis=1)
+    return port_returns.rename("regime_strategy")
 
 
 def run_baseline(returns_df: pd.DataFrame) -> pd.Series:
@@ -143,7 +131,7 @@ def compare_strategies(
     Returns:
         Tuple of (regime_returns, baseline_returns) as monthly pd.Series.
     """
-    allocations = define_allocations()
+    allocations = config.REGIME_ALLOCATIONS
     regime_returns = run_backtest(regime_df, returns_df, allocations, regime_col)
     baseline_returns = run_baseline(returns_df)
 
